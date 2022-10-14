@@ -1,0 +1,57 @@
+name: on-pr-merge-into-develop
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use LTS Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: lts/*
+      - run: yarn install
+      - run: yarn build
+      - run: yarn test
+
+  build-and-push:
+    if: github.event.pull_request.merged == true
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v2
+        with:
+          node-version: "16.x"
+
+      - name: Extract version
+        id: extract_version
+        uses: Saionaro/extract-package-version@v1.0.6
+      
+      - run: echo ${{ steps.extract_version.outputs.version }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+  
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push the image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: 'example'  
+          # using the branch name as tag
+          # change it to ${{ steps.extract_version.outputs.version }} if needed
+          IMAGE_TAG: ${GITHUB_REF_NAME}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:${GITHUB_REF_NAME} .
+          docker push -a $ECR_REGISTRY/$ECR_REPOSITORY
